@@ -53,6 +53,7 @@ export enum RequestType {
   Whoami = `whoami`,
   Repository = `repository`,
   Publish = `publish`,
+  Audit = `audit`,
 }
 
 export type Request = {
@@ -76,6 +77,8 @@ export type Request = {
   type: RequestType.Publish;
   scope?: string;
   localName: string;
+} | {
+  type: RequestType.Audit;
 };
 
 export class Login {
@@ -469,6 +472,22 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
         return response.end(rawData);
       });
     },
+    async [RequestType.Audit](parsedRequest, request, response) {
+      let rawData = ``;
+
+      request.on(`data`, chunk => rawData += chunk);
+      request.on(`end`, () => {
+        let body;
+        try {
+          body = JSON.parse(rawData);
+          console.log(JSON.stringify(body));
+        } catch (e) {
+          return processError(response, 401, `Invalid`);
+        }
+        return response.end();
+      });
+      sendError(response, 501, `Not implemented.`);
+    },
   };
 
   const sendError = (res: ServerResponse, statusCode: number, errorMessage: string): void => {
@@ -532,6 +551,10 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
         scope,
         localName,
         version,
+      };
+    } else if (url === `/-/npm/v1/security/audits/quick` && method === `POST`) {
+      return {
+        type: RequestType.Audit,
       };
     }
 
