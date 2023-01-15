@@ -6,9 +6,11 @@ import https                                                   from 'https';
 import {IncomingMessage, ServerResponse}                       from 'http';
 import http                                                    from 'http';
 import invariant                                               from 'invariant';
+import {SourceMap}                                             from 'module';
 import {AddressInfo}                                           from 'net';
 import os                                                      from 'os';
 import pem                                                     from 'pem';
+import {versions}                                              from 'process';
 import semver                                                  from 'semver';
 import serveStatic                                             from 'serve-static';
 import stream                                                  from 'stream';
@@ -30,7 +32,7 @@ export const TEST_TIMEOUT = os.endianness() === `BE`
   ? 150000
   : 50000;
 
-export type PackageEntry = Map<string, {path: string, packageJson: Record<string, any>}>;
+export type PackageEntry = Map<string, { path: string, packageJson: Record<string, any> }>;
 export type PackageRegistry = Map<string, PackageEntry>;
 
 interface RunDriverOptions extends Record<string, any> {
@@ -94,7 +96,7 @@ export class Login {
     encoded: string;
   };
 
-  constructor(username: string, {otp, notice}: {otp?: boolean, notice?: boolean} = {}) {
+  constructor(username: string, {otp, notice}: { otp?: boolean, notice?: boolean } = {}) {
     this.username = username;
     this.password = crypto.createHash(`sha1`).update(username).digest(`hex`);
 
@@ -109,6 +111,56 @@ export class Login {
       encoded: Buffer.from(authIdent).toString(`base64`),
     };
   }
+}
+
+export interface AuditRequest {
+  requires: AuditPackageDescription;
+  dependencies: AuditDependencyDescription;
+}
+
+export interface AuditDependencyDescription {
+  [packageName: string]: {
+    version: string;
+    integrity: string;
+    requires: AuditPackageDescription;
+    dev: boolean;
+  };
+}
+
+export interface AuditPackageDescription {
+  [packageName: string]: string;
+}
+
+type DependencyChains = Array<Array<AuditPackageDescription>>;
+
+export interface Advisory {
+  id: number;
+  affectedPackage: string;
+  patched_versions: [string];
+  severity: AuditSeverity;
+  findings: [];
+}
+
+enum AuditSeverity {
+  Info = `info`,
+  Low = `low`,
+  Moderate = `moderate`,
+  High = `high`,
+  Critical = `critical`,
+}
+
+export class AuditResult {
+  advisories: Set<Advisory>;
+  metadata: AuditResultMetadata;
+
+  constructor(depCount?: number) {
+    this.advisories = new Set();
+    this.metadata = {vulnerabilities: new Map()};
+  }
+}
+
+export interface AuditResultMetadata {
+  vulnerabilities: Map<AuditSeverity, number>;
 }
 
 export const validLogins = {
@@ -272,6 +324,8 @@ const packageServerUrls: {
 
 export const startPackageServer = ({type}: { type: keyof typeof packageServerUrls } = {type: `http`}): Promise<string> => {
   const serverUrl = packageServerUrls[type];
+  let advisories: Array<Advisory>;
+  fsUtils.readJson<Array<Advisory>>(npath.toPortablePath(`${require(`pkg-tests-fixtures`)}/advisories.json`)).then(parsed => advisories = parsed);
   if (serverUrl !== null)
     return serverUrl;
 
@@ -292,7 +346,25 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
     return false;
   };
 
-  const processors: {[requestType in RequestType]: (parsedRequest: Request, request: IncomingMessage, response: ServerResponse) => Promise<void>} = {
+  const buildDependencyChains = (req: AuditRequest): DependencyChains => {
+    const result = new Array<Array<AuditPackageDescription>>;
+    for (const pDesc in req.requires)
+      walkRequirements({package: pDesc, version: req.requires[pDesc]}, req.dependencies, []).forEach(chain => result.push(chain));
+
+    return result;
+  };
+
+  const walkRequirements = (pDesc: {package: string, version: string}, depList: AuditDependencyDescription, processedPackages: Array<AuditPackageDescription>): DependencyChains => {
+    const result: DependencyChains = [[pDesc]];
+    if (processedPackages.some(candidate => pDesc.package === candidate.package && pDesc.version === candidate.version))
+      return [[]];
+    for (const requiredPackage in depList[pDesc.package].requires)
+      walkRequirements({package: requiredPackage, version: depList[pDesc.package].requires[pDesc.package]}, depList, [pDesc, ...processedPackages]).forEach(chain => result.push([pDesc, ...chain]));
+
+    return result;
+  };
+
+  const processors: { [requestType in RequestType]: (parsedRequest: Request, request: IncomingMessage, response: ServerResponse) => Promise<void> } = {
     async [RequestType.PackageInfo](parsedRequest, _, response) {
       if (parsedRequest.type !== RequestType.PackageInfo)
         throw new Error(`Assertion failed: Invalid request type`);
@@ -475,18 +547,68 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
     async [RequestType.Audit](parsedRequest, request, response) {
       let rawData = ``;
 
+      const resultReplacer = (k: string, v: unknown) => {
+        if (v instanceof Map) {
+          return Object.fromEntries(v);
+        } else if (v instanceof Set) {
+          const obj: { [key: string]: Advisory } = {};
+          for (const entry of v)
+            obj[(<Advisory>entry).id.toString()] = entry;
+          return obj;
+        } else {
+          return v;
+        }
+      };
+
+      const versionMatch = (versionSpec: string, candidate: string): boolean => {
+        const relationMatch = versionSpec.match(/([<>]=?).*/);
+        const versionRegex = /[^\d]*(([0-9]\.)+\d)/;
+        let relation = `=`;
+        if (relationMatch) relation = relationMatch[1];
+        const specVersion = versionSpec.match(versionRegex);
+        const candidateVersion = candidate.match(versionRegex);
+        if (specVersion && candidateVersion) {
+          console.log(`Version match settings: ${relation} | candidateVersion ${candidateVersion[1]} | specVersion ${specVersion[1]}`);
+          const localeCompare = candidateVersion[1].localeCompare(specVersion[1], undefined, {sensitivity: `base`});
+          return (relation.indexOf(`=`) > -1 && localeCompare === 0) ||
+            (relation.indexOf(`<`) > -1 && localeCompare === -1) ||
+            (relation.indexOf(`>`) > -1 && localeCompare === 1);
+        }
+        return false;
+      };
+
       request.on(`data`, chunk => rawData += chunk);
       request.on(`end`, () => {
         let body;
         try {
-          body = JSON.parse(rawData);
-          console.log(JSON.stringify(body));
+          body = JSON.parse(rawData) as AuditRequest;
+          const depChains = buildDependencyChains(body);
+          const auditResult = new AuditResult();
+          const dummyAdvisories: Array<Advisory> = [{
+            id: 1,
+            affectedPackage: `one-fixed-dep`,
+            patched_versions: [`>=2.0.0`],
+            severity: AuditSeverity.Critical,
+            findings: [],
+          }];
+          for (const adv of dummyAdvisories) {
+            for (const chain of depChains) {
+              if (chain.some(candidate => candidate.package === adv.affectedPackage && !versionMatch(adv.patched_versions[0], candidate.version))) {
+                auditResult.advisories.add(adv);
+                const vulnCount = auditResult.metadata.vulnerabilities.get(adv.severity) ?? 0;
+                auditResult.metadata.vulnerabilities.set(adv.severity, vulnCount + 1);
+                console.log(JSON.stringify(auditResult, resultReplacer));
+              }
+            }
+          }
+          response.writeHead(200, {[`Content-Type`]: `application/json`});
+          return response.end(JSON.stringify(auditResult, resultReplacer));
         } catch (e) {
-          return processError(response, 401, `Invalid`);
+          return processError(response, 400, `Invalid`);
         }
         return response.end();
       });
-      sendError(response, 501, `Not implemented.`);
+      // sendError(response, 501, `Not implemented.`);
     },
   };
 

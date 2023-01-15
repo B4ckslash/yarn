@@ -71,6 +71,11 @@ export const writeJson = (target: PortablePath, object: any): Promise<void> => {
   return writeFile(target, JSON.stringify(object));
 };
 
+export const readJson = async <T>(file: PortablePath): Promise<T> => {
+  const buf = await xfs.readFilePromise(file, `utf8`);
+  return JSON.parse(buf);
+};
+
 export const readSyml = async (source: PortablePath): Promise<any> => {
   const fileContent = await xfs.readFilePromise(source, `utf8`);
 

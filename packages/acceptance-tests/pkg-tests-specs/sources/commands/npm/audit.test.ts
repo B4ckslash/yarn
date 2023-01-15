@@ -26,12 +26,13 @@ describe(`Commands`, () => {
     test.todo(`it should recurse packages to audit`);
 
     test(`it should ignore advisories`, makeTemporaryEnv({
-      dependencies: {[`no-deps`]: `1.0.0`},
+      dependencies: {[`no-deps`]: `1.0.0`, [`one-fixed-dep`]: `1.0.0`},
+      devDependencies: {[`one-fixed-dep`]: `1.0.0`},
     }, async ({path, run, source}) => {
       await startPackageServer();
       await run(`install`);
-      const {code, stdout, stderr} = await run(`npm`, `audit`, `--recursive`);
-      console.log(`Code ${code}, ${stdout}, ${stderr}`);
+      const {code, stdout} = await run(`npm`, `audit`, `--recursive`);
+      console.log(`Code ${code} | stdout: ${stdout}`);
     }),
     );
   });
