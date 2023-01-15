@@ -1,0 +1,158 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "type": "object",
+  "properties": {
+    "actions": {
+      "type": "array",
+      "items": {}
+    },
+    "advisories": {
+      "type": "object",
+      "properties": {
+        "<advisory_id>": {
+          "type": "object",
+          "properties": {
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "string"
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "metadata": {
+              "type": "null"
+            },
+            "vulnerable_versions": {
+              "type": "string"
+            },
+            "module_name": {
+              "type": "string"
+            },
+            "severity": {
+              "type": "string"
+            },
+            "github_advisory_id": {
+              "type": "string"
+            },
+            "cves": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "access": {
+              "type": "string"
+            },
+            "patched_versions": {
+              "type": "string"
+            },
+            "cvss": {
+              "type": "object",
+              "properties": {
+                "score": {
+                  "type": "number"
+                },
+                "vectorString": {
+                  "type": "null"
+                }
+              }
+            },
+            "updated": {
+              "type": "string"
+            },
+            "recommendation": {
+              "type": "string"
+            },
+            "cwe": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "found_by": {
+              "type": "null"
+            },
+            "deleted": {
+              "type": "null"
+            },
+            "id": {
+              "type": "number"
+            },
+            "references": {
+              "type": "string"
+            },
+            "created": {
+              "type": "string"
+            },
+            "reported_by": {
+              "type": "null"
+            },
+            "title": {
+              "type": "string"
+            },
+            "npm_advisory_id": {
+              "type": "null"
+            },
+            "overview": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "muted": {
+      "type": "array",
+      "items": {}
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "vulnerabilities": {
+          "type": "object",
+          "properties": {
+            "info": {
+              "type": "number"
+            },
+            "low": {
+              "type": "number"
+            },
+            "moderate": {
+              "type": "number"
+            },
+            "high": {
+              "type": "number"
+            },
+            "critical": {
+              "type": "number"
+            }
+          }
+        },
+        "dependencies": {
+          "type": "number"
+        },
+        "devDependencies": {
+          "type": "number"
+        },
+        "optionalDependencies": {
+          "type": "number"
+        },
+        "totalDependencies": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}
